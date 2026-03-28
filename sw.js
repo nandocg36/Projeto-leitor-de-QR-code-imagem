@@ -1,4 +1,4 @@
-const CACHE = "qr-image-reader-v1";
+const CACHE = "qr-image-reader-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,8 @@ const ASSETS = [
   "./manifest.webmanifest",
   "./icons/icon.svg",
   "https://unpkg.com/jsqr@1.4.0/dist/jsQR.min.js",
+  "https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.mjs",
+  "https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.mjs",
 ];
 
 self.addEventListener("install", function (event) {

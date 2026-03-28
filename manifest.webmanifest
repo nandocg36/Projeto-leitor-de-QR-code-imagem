@@ -1,7 +1,7 @@
 {
   "name": "Leitor QR por imagem",
   "short_name": "QR Imagem",
-  "description": "Leia códigos QR a partir de fotos e ficheiros de imagem.",
+  "description": "Leia códigos QR a partir de imagens ou PDF no dispositivo.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#0f172a",

@@ -9,41 +9,51 @@
     <meta name="theme-color" content="#2563eb" />
     <meta
       name="description"
-      content="Leia códigos QR a partir de imagens. Funciona offline como PWA."
+      content="Leia códigos QR a partir de imagens ou PDF. Funciona offline como PWA."
     />
     <title>Leitor QR por imagem</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="css/app.css" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
-    <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.min.js" defer></script>
-    <script src="js/app.js" defer></script>
   </head>
   <body>
     <div class="app">
       <header>
         <h1>Leitor QR por imagem</h1>
         <p>
-          Escolha uma foto ou imagem com um código QR. Os dados aparecem abaixo;
-          pode instalar a app no ecrã inicial.
+          Escolha uma imagem ou um PDF com o código QR. O texto ou link aparece
+          abaixo; pode instalar a app no ecrã inicial.
         </p>
       </header>
 
-      <section class="panel" aria-label="Carregar imagem">
+      <aside class="note-box" role="note">
+        <strong>Sobre WhatsApp e a câmara</strong>
+        <p>
+          Nenhuma página web ou PWA pode fazer o WhatsApp (ou outra app) usar um
+          ficheiro em vez da câmara real — o sistema bloqueia isso por segurança.
+          Use esta app para <em>ler</em> o QR e copiar o link; no PC, no WhatsApp
+          Web, veja se existe “Ligar com número de telefone” ou código de
+          emparelhamento. Se o QR estiver num PDF no telemóvel, escolha o PDF aqui
+          (ou exporte a página como imagem).
+        </p>
+      </aside>
+
+      <section class="panel" aria-label="Carregar ficheiro">
         <div class="actions">
           <button type="button" class="btn" id="pick-btn">
-            Escolher imagem
+            Escolher imagem ou PDF
           </button>
           <button type="button" class="btn" id="clear-btn">Limpar</button>
           <input
             id="file-input"
             type="file"
-            accept="image/*"
-            aria-label="Ficheiro de imagem com QR"
+            accept="image/*,.pdf,application/pdf"
+            aria-label="Imagem ou PDF com código QR"
           />
         </div>
-        <div class="preview-wrap">
+        <div class="preview-wrap" id="preview-wrap">
           <span class="preview-placeholder" id="preview-placeholder"
-            >Pré-visualização da imagem</span
+            >Pré-visualização</span
           >
           <img id="preview" class="hidden" alt="Pré-visualização" />
         </div>
@@ -68,9 +78,11 @@
       </div>
 
       <footer>
-        PWA com processamento local no browser — a imagem não é enviada a
+        PWA com processamento local no browser — o ficheiro não é enviado a
         nenhum servidor.
       </footer>
     </div>
+    <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script type="module" src="js/app.js"></script>
   </body>
 </html>

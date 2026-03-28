@@ -47,6 +47,28 @@ header p {
   font-size: 0.95rem;
 }
 
+.note-box {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.1rem;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.note-box strong {
+  display: block;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.note-box p {
+  margin: 0;
+  line-height: 1.55;
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
