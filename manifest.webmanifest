@@ -1,0 +1,18 @@
+{
+  "name": "Leitor QR por imagem",
+  "short_name": "QR Imagem",
+  "description": "Leia códigos QR a partir de fotos e ficheiros de imagem.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "lang": "pt",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

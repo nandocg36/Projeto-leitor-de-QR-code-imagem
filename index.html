@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pt">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#2563eb" />
+    <meta
+      name="description"
+      content="Leia códigos QR a partir de imagens. Funciona offline como PWA."
+    />
+    <title>Leitor QR por imagem</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.min.js" defer></script>
+    <script src="js/app.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>Leitor QR por imagem</h1>
+        <p>
+          Escolha uma foto ou imagem com um código QR. Os dados aparecem abaixo;
+          pode instalar a app no ecrã inicial.
+        </p>
+      </header>
+
+      <section class="panel" aria-label="Carregar imagem">
+        <div class="actions">
+          <button type="button" class="btn" id="pick-btn">
+            Escolher imagem
+          </button>
+          <button type="button" class="btn" id="clear-btn">Limpar</button>
+          <input
+            id="file-input"
+            type="file"
+            accept="image/*"
+            aria-label="Ficheiro de imagem com QR"
+          />
+        </div>
+        <div class="preview-wrap">
+          <span class="preview-placeholder" id="preview-placeholder"
+            >Pré-visualização da imagem</span
+          >
+          <img id="preview" class="hidden" alt="Pré-visualização" />
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="panel" aria-label="Resultado">
+        <div class="result">
+          <div class="result-label">Conteúdo</div>
+          <div id="result-value" class="result-value empty">
+            Nenhum resultado ainda.
+          </div>
+        </div>
+      </section>
+
+      <div id="install-hint" class="install-hint hidden">
+        <strong>Instalar</strong> — Pode adicionar esta app ao ecrã inicial para
+        acesso rápido.
+        <div style="margin-top: 0.65rem">
+          <button type="button" class="btn" id="install-btn">Instalar app</button>
+        </div>
+      </div>
+
+      <footer>
+        PWA com processamento local no browser — a imagem não é enviada a
+        nenhum servidor.
+      </footer>
+    </div>
+  </body>
+</html>
