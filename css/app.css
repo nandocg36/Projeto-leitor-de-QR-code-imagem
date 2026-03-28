@@ -241,3 +241,18 @@ footer {
 .hidden {
   display: none !important;
 }
+
+.lib-error {
+  max-width: 40rem;
+  margin: 0 auto 1.5rem;
+  padding: 1rem 1.25rem;
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid var(--error);
+  border-radius: 8px;
+  color: #fecaca;
+  font-size: 0.9rem;
+}
+
+.lib-error code {
+  font-size: 0.85em;
+}

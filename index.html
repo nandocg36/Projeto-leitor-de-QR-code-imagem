@@ -107,7 +107,24 @@
         nenhum servidor.
       </footer>
     </div>
-    <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <p id="lib-error" class="lib-error hidden" role="alert">
+      Não foi possível carregar o motor de leitura (jsQR). Atualize a página ou
+      verifique se o ficheiro <code>vendor/jsQR.min.js</code> existe no site.
+    </p>
+    <script>
+      (function () {
+        var s = document.createElement("script");
+        s.src = "vendor/jsQR.min.js";
+        s.defer = true;
+        s.onerror = function () {
+          var el = document.getElementById("lib-error");
+          if (el) {
+            el.classList.remove("hidden");
+          }
+        };
+        document.body.appendChild(s);
+      })();
+    </script>
     <script type="module" src="js/app.js"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-const CACHE = "qr-image-reader-v3";
+const CACHE = "qr-image-reader-v4";
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,7 +6,7 @@ const ASSETS = [
   "./js/app.js",
   "./manifest.webmanifest",
   "./icons/icon.svg",
-  "https://unpkg.com/jsqr@1.4.0/dist/jsQR.min.js",
+  "./vendor/jsQR.min.js",
   "https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.mjs",
   "https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.mjs",
 ];
@@ -45,6 +45,10 @@ self.addEventListener("activate", function (event) {
 
 self.addEventListener("fetch", function (event) {
   if (event.request.method !== "GET") {
+    return;
+  }
+  const url = new URL(event.request.url);
+  if (url.origin === self.location.origin && url.pathname.endsWith("/sw.js")) {
     return;
   }
   event.respondWith(

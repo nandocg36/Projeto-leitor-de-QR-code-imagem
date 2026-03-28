@@ -1,4 +1,6 @@
 const MAX_SCAN_EDGE = 1200;
+const MAX_SCAN_EDGE_RETRY = 2400;
+const JSQR_WAIT_MS = 15000;
 const PDFJS_VERSION = "4.10.38";
 const PDF_MODULE = `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/build/pdf.mjs`;
 const PDF_WORKER = `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.mjs`;
@@ -25,12 +27,55 @@ let lastDecodedText = "";
 let screenStream = null;
 let screenRafId = null;
 let screenScanning = false;
+let screenFrameSkip = 0;
 
-if (!navigator.mediaDevices?.getDisplayMedia) {
-  screenBtn.disabled = true;
-  screenBtn.title =
-    "Indisponível neste browser (comum em alguns telemóveis). Use imagem ou PDF.";
+let jsQrReadyPromise = null;
+
+function ensureJsQR() {
+  if (typeof jsQR === "function") {
+    return Promise.resolve();
+  }
+  if (!jsQrReadyPromise) {
+    jsQrReadyPromise = new Promise(function (resolve, reject) {
+      const deadline = Date.now() + JSQR_WAIT_MS;
+      function tick() {
+        if (typeof jsQR === "function") {
+          resolve();
+          return;
+        }
+        if (Date.now() > deadline) {
+          reject(
+            new Error(
+              "O motor jsQR não carregou. Confirme que vendor/jsQR.min.js existe e recarregue."
+            )
+          );
+          return;
+        }
+        requestAnimationFrame(tick);
+      }
+      tick();
+    });
+  }
+  return jsQrReadyPromise;
 }
+
+function screenCaptureSupported() {
+  return Boolean(navigator.mediaDevices?.getDisplayMedia);
+}
+
+function updateScreenButtonState() {
+  if (!screenCaptureSupported()) {
+    screenBtn.disabled = true;
+    screenBtn.title =
+      "Indisponível neste browser (ex.: Safari iOS ou alguns telemóveis). Use «Escolher imagem ou PDF».";
+    return;
+  }
+  screenBtn.disabled = false;
+  screenBtn.title =
+    "Partilhe o ecrã ou janela onde está o QR. No telemóvel pode não estar disponível.";
+}
+
+updateScreenButtonState();
 
 function setStatus(text, kind) {
   statusEl.textContent = text || "";
@@ -120,45 +165,154 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function scaleDimensions(w, h) {
+function scaleDimensions(w, h, maxEdge) {
+  const cap = maxEdge != null ? maxEdge : MAX_SCAN_EDGE;
   const max = Math.max(w, h);
-  if (max <= MAX_SCAN_EDGE) {
+  if (max <= cap) {
     return { width: w, height: h };
   }
-  const scale = MAX_SCAN_EDGE / max;
+  const scale = cap / max;
   return {
     width: Math.round(w * scale),
     height: Math.round(h * scale),
   };
 }
 
+function decodeQrRaw(imageData, options) {
+  return jsQR(imageData.data, imageData.width, imageData.height, options);
+}
+
+function imageDataToGrayscaleOtsu(imageData) {
+  const d = imageData.data;
+  const w = imageData.width;
+  const h = imageData.height;
+  const gray = new Uint8Array(w * h);
+  let p = 0;
+  for (let i = 0; i < d.length; i += 4, p++) {
+    gray[p] = Math.round(
+      0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+    );
+  }
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < gray.length; i++) {
+    hist[gray[i]]++;
+  }
+  let sum = 0;
+  for (let t = 0; t < 256; t++) {
+    sum += t * hist[t];
+  }
+  let sumB = 0;
+  let wB = 0;
+  let maxVar = 0;
+  let threshold = 127;
+  const total = w * h;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) {
+      continue;
+    }
+    const wF = total - wB;
+    if (wF === 0) {
+      break;
+    }
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > maxVar) {
+      maxVar = between;
+      threshold = t;
+    }
+  }
+  const out = new Uint8ClampedArray(d.length);
+  p = 0;
+  for (let i = 0; i < d.length; i += 4, p++) {
+    const v = gray[p] > threshold ? 255 : 0;
+    out[i] = v;
+    out[i + 1] = v;
+    out[i + 2] = v;
+    out[i + 3] = 255;
+  }
+  return new ImageData(out, w, h);
+}
+
+function imageDataInvertRgb(imageData) {
+  const d = imageData.data;
+  const out = new Uint8ClampedArray(d.length);
+  for (let i = 0; i < d.length; i += 4) {
+    out[i] = 255 - d[i];
+    out[i + 1] = 255 - d[i + 1];
+    out[i + 2] = 255 - d[i + 2];
+    out[i + 3] = 255;
+  }
+  return new ImageData(out, imageData.width, imageData.height);
+}
+
+function imageDataGrayscaleOnly(imageData) {
+  const d = imageData.data;
+  const out = new Uint8ClampedArray(d.length);
+  for (let i = 0; i < d.length; i += 4) {
+    const g = Math.round(
+      0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+    );
+    out[i] = out[i + 1] = out[i + 2] = g;
+    out[i + 3] = 255;
+  }
+  return new ImageData(out, imageData.width, imageData.height);
+}
+
+const QR_DECODE_OPTS = { inversionAttempts: "attemptBoth" };
+
 function decodeQrFromImageData(imageData) {
   if (typeof jsQR !== "function") {
     throw new Error("Biblioteca jsQR não carregou.");
   }
-  return jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: "attemptBoth",
-  });
+  const chain = [
+    imageData,
+    imageDataToGrayscaleOtsu(imageData),
+    imageDataGrayscaleOnly(imageData),
+  ];
+  for (let i = 0; i < chain.length; i++) {
+    let code = decodeQrRaw(chain[i], QR_DECODE_OPTS);
+    if (code && code.data) {
+      return code;
+    }
+    code = decodeQrRaw(imageDataInvertRgb(chain[i]), QR_DECODE_OPTS);
+    if (code && code.data) {
+      return code;
+    }
+  }
+  return null;
 }
 
-function decodeQrFromCanvasSource(source) {
+function decodeQrFromCanvasSource(source, maxEdge) {
   const naturalW = source.videoWidth || source.naturalWidth || source.width;
   const naturalH = source.videoHeight || source.naturalHeight || source.height;
   if (!naturalW || !naturalH) {
     return null;
   }
-  const { width, height } = scaleDimensions(naturalW, naturalH);
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(source, 0, 0, width, height);
-  const imageData = ctx.getImageData(0, 0, width, height);
-  return decodeQrFromImageData(imageData);
+  const tryEdges = [maxEdge != null ? maxEdge : MAX_SCAN_EDGE];
+  if (maxEdge == null) {
+    tryEdges.push(MAX_SCAN_EDGE_RETRY);
+  }
+  for (let e = 0; e < tryEdges.length; e++) {
+    const { width, height } = scaleDimensions(naturalW, naturalH, tryEdges[e]);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(source, 0, 0, width, height);
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const code = decodeQrFromImageData(imageData);
+    if (code && code.data) {
+      return code;
+    }
+  }
+  return null;
 }
 
 function decodeQrFromImage(img) {
-  return decodeQrFromCanvasSource(img);
+  return decodeQrFromCanvasSource(img, null);
 }
 
 function snapshotSourceToDataUrl(source) {
@@ -167,7 +321,7 @@ function snapshotSourceToDataUrl(source) {
   if (!w || !h) {
     return "";
   }
-  const { width, height } = scaleDimensions(w, h);
+  const { width, height } = scaleDimensions(w, h, MAX_SCAN_EDGE);
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -186,10 +340,11 @@ function isPdfFile(file) {
   return /\.pdf$/i.test(file.name || "");
 }
 
-async function renderPdfPageForScan(page) {
+async function renderPdfPageForScan(page, maxEdge) {
+  const cap = maxEdge != null ? maxEdge : MAX_SCAN_EDGE;
   const baseViewport = page.getViewport({ scale: 1 });
   const maxDim = Math.max(baseViewport.width, baseViewport.height);
-  const scale = maxDim > MAX_SCAN_EDGE ? MAX_SCAN_EDGE / maxDim : 1;
+  const scale = maxDim > cap ? cap / maxDim : 1;
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.floor(viewport.width));
@@ -209,6 +364,13 @@ async function processPdf(file) {
   previewPlaceholder.classList.remove("hidden");
 
   setStatus("A carregar PDF…", "info");
+
+  try {
+    await ensureJsQR();
+  } catch (e) {
+    setStatus(e.message || "jsQR indisponível.", "err");
+    return;
+  }
 
   let pdfjsLib;
   try {
@@ -235,14 +397,23 @@ async function processPdf(file) {
   for (let p = 1; p <= numPages; p++) {
     setStatus("A analisar página " + p + " de " + numPages + "…", "info");
     const page = await pdf.getPage(p);
-    const { canvas, imageData } = await renderPdfPageForScan(page);
-    if (!previewDataUrl) {
-      previewDataUrl = canvas.toDataURL("image/png");
+    const edges = [MAX_SCAN_EDGE, MAX_SCAN_EDGE_RETRY];
+    let code = null;
+    let lastCanvas = null;
+    for (let ei = 0; ei < edges.length; ei++) {
+      const { canvas, imageData } = await renderPdfPageForScan(page, edges[ei]);
+      lastCanvas = canvas;
+      if (!previewDataUrl) {
+        previewDataUrl = canvas.toDataURL("image/png");
+      }
+      code = decodeQrFromImageData(imageData);
+      if (code && code.data) {
+        break;
+      }
     }
-    const code = decodeQrFromImageData(imageData);
     if (code && code.data) {
       showResult(code.data);
-      preview.src = canvas.toDataURL("image/png");
+      preview.src = lastCanvas.toDataURL("image/png");
       preview.classList.remove("hidden");
       previewPlaceholder.classList.add("hidden");
       setStatus("QR lido com sucesso (PDF, página " + p + ").", "ok");
@@ -264,8 +435,9 @@ function processImageFile(file) {
   revokePreviewUrl();
   objectUrl = URL.createObjectURL(file);
   screenVideo.classList.add("hidden");
-  preview.onload = function () {
+  preview.onload = async function () {
     try {
+      await ensureJsQR();
       const code = decodeQrFromImage(preview);
       if (code && code.data) {
         showResult(code.data);
@@ -317,7 +489,16 @@ function screenScanTick() {
   if (!screenScanning || !screenStream) {
     return;
   }
-  const code = decodeQrFromCanvasSource(screenVideo);
+  if (typeof jsQR !== "function") {
+    screenRafId = requestAnimationFrame(screenScanTick);
+    return;
+  }
+  screenFrameSkip = (screenFrameSkip + 1) % 2;
+  if (screenFrameSkip !== 0) {
+    screenRafId = requestAnimationFrame(screenScanTick);
+    return;
+  }
+  const code = decodeQrFromCanvasSource(screenVideo, MAX_SCAN_EDGE);
   if (code && code.data) {
     const thumb = snapshotSourceToDataUrl(screenVideo);
     stopScreenCapture();
@@ -387,6 +568,16 @@ async function startScreenCapture() {
     return;
   }
 
+  try {
+    await ensureJsQR();
+  } catch (e) {
+    stopScreenCapture();
+    previewPlaceholder.textContent = "Pré-visualização";
+    setStatus(e.message || "jsQR indisponível.", "err");
+    return;
+  }
+
+  screenFrameSkip = 0;
   screenVideo.classList.remove("hidden");
   previewPlaceholder.classList.add("hidden");
   screenScanning = true;
