@@ -3,10 +3,16 @@ const PDFJS_VERSION = "4.10.38";
 const PDF_MODULE = `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/build/pdf.mjs`;
 const PDF_WORKER = `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.mjs`;
 
+const SCREEN_BTN_LABEL = "Capturar ecrã";
+const SCREEN_BTN_STOP = "Parar análise";
+
 const fileInput = document.getElementById("file-input");
 const pickBtn = document.getElementById("pick-btn");
+const screenBtn = document.getElementById("screen-btn");
 const clearBtn = document.getElementById("clear-btn");
+const copyBtn = document.getElementById("copy-btn");
 const preview = document.getElementById("preview");
+const screenVideo = document.getElementById("screen-preview");
 const previewPlaceholder = document.getElementById("preview-placeholder");
 const resultValue = document.getElementById("result-value");
 const statusEl = document.getElementById("status");
@@ -15,10 +21,24 @@ const installHint = document.getElementById("install-hint");
 
 let objectUrl = null;
 let deferredPrompt = null;
+let lastDecodedText = "";
+let screenStream = null;
+let screenRafId = null;
+let screenScanning = false;
+
+if (!navigator.mediaDevices?.getDisplayMedia) {
+  screenBtn.disabled = true;
+  screenBtn.title =
+    "Indisponível neste browser (comum em alguns telemóveis). Use imagem ou PDF.";
+}
 
 function setStatus(text, kind) {
   statusEl.textContent = text || "";
   statusEl.className = "status" + (kind ? " " + kind : "");
+}
+
+function setScreenButtonLabel(scanning) {
+  screenBtn.textContent = scanning ? SCREEN_BTN_STOP : SCREEN_BTN_LABEL;
 }
 
 function revokePreviewUrl() {
@@ -28,15 +48,41 @@ function revokePreviewUrl() {
   }
 }
 
+function stopScreenCapture() {
+  screenScanning = false;
+  if (screenRafId != null) {
+    cancelAnimationFrame(screenRafId);
+    screenRafId = null;
+  }
+  if (screenStream) {
+    screenStream.getTracks().forEach(function (t) {
+      t.stop();
+    });
+    screenStream = null;
+  }
+  screenVideo.pause();
+  screenVideo.srcObject = null;
+  screenVideo.classList.add("hidden");
+  setScreenButtonLabel(false);
+}
+
+function clearResultDisplay(message, isEmpty) {
+  lastDecodedText = "";
+  copyBtn.disabled = true;
+  resultValue.classList.toggle("empty", isEmpty !== false);
+  resultValue.textContent = message;
+  resultValue.innerHTML = "";
+}
+
 function clearAll() {
+  stopScreenCapture();
   revokePreviewUrl();
   fileInput.value = "";
   preview.removeAttribute("src");
   preview.classList.add("hidden");
+  previewPlaceholder.textContent = "Pré-visualização";
   previewPlaceholder.classList.remove("hidden");
-  resultValue.textContent = "Nenhum resultado ainda.";
-  resultValue.classList.add("empty");
-  resultValue.innerHTML = "";
+  clearResultDisplay("Nenhum resultado ainda.", true);
   setStatus("", "");
 }
 
@@ -50,6 +96,8 @@ function isProbablyUrl(str) {
 }
 
 function showResult(text) {
+  lastDecodedText = text;
+  copyBtn.disabled = !text;
   resultValue.classList.remove("empty");
   if (isProbablyUrl(text)) {
     const href = new URL(text).href.replace(/"/g, "&quot;");
@@ -93,21 +141,39 @@ function decodeQrFromImageData(imageData) {
   });
 }
 
-function decodeQrFromImage(img) {
-  const naturalW = img.naturalWidth || img.width;
-  const naturalH = img.naturalHeight || img.height;
+function decodeQrFromCanvasSource(source) {
+  const naturalW = source.videoWidth || source.naturalWidth || source.width;
+  const naturalH = source.videoHeight || source.naturalHeight || source.height;
   if (!naturalW || !naturalH) {
     return null;
   }
-
   const { width, height } = scaleDimensions(naturalW, naturalH);
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0, width, height);
+  ctx.drawImage(source, 0, 0, width, height);
   const imageData = ctx.getImageData(0, 0, width, height);
   return decodeQrFromImageData(imageData);
+}
+
+function decodeQrFromImage(img) {
+  return decodeQrFromCanvasSource(img);
+}
+
+function snapshotSourceToDataUrl(source) {
+  const w = source.videoWidth || source.naturalWidth || source.width;
+  const h = source.videoHeight || source.naturalHeight || source.height;
+  if (!w || !h) {
+    return "";
+  }
+  const { width, height } = scaleDimensions(w, h);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(source, 0, 0, width, height);
+  return canvas.toDataURL("image/png");
 }
 
 function isPdfFile(file) {
@@ -135,9 +201,11 @@ async function renderPdfPageForScan(page) {
 }
 
 async function processPdf(file) {
+  stopScreenCapture();
   revokePreviewUrl();
   preview.removeAttribute("src");
   preview.classList.add("hidden");
+  screenVideo.classList.add("hidden");
   previewPlaceholder.classList.remove("hidden");
 
   setStatus("A carregar PDF…", "info");
@@ -174,8 +242,7 @@ async function processPdf(file) {
     const code = decodeQrFromImageData(imageData);
     if (code && code.data) {
       showResult(code.data);
-      const thumb = canvas.toDataURL("image/png");
-      preview.src = thumb;
+      preview.src = canvas.toDataURL("image/png");
       preview.classList.remove("hidden");
       previewPlaceholder.classList.add("hidden");
       setStatus("QR lido com sucesso (PDF, página " + p + ").", "ok");
@@ -188,14 +255,15 @@ async function processPdf(file) {
     preview.classList.remove("hidden");
     previewPlaceholder.classList.add("hidden");
   }
-  resultValue.textContent = "Não foi encontrado nenhum QR neste PDF.";
-  resultValue.classList.add("empty");
+  clearResultDisplay("Não foi encontrado nenhum QR neste PDF.", true);
   setStatus("Tente PDF com QR maior ou exporte a página como imagem.", "info");
 }
 
 function processImageFile(file) {
+  stopScreenCapture();
   revokePreviewUrl();
   objectUrl = URL.createObjectURL(file);
+  screenVideo.classList.add("hidden");
   preview.onload = function () {
     try {
       const code = decodeQrFromImage(preview);
@@ -203,20 +271,22 @@ function processImageFile(file) {
         showResult(code.data);
         setStatus("QR lido com sucesso.", "ok");
       } else {
-        resultValue.textContent = "Não foi encontrado nenhum QR nesta imagem.";
-        resultValue.classList.add("empty");
+        clearResultDisplay(
+          "Não foi encontrado nenhum QR nesta imagem.",
+          true
+        );
         setStatus(
           "Tente outro recorte, maior resolução ou melhor iluminação.",
           "info"
         );
       }
     } catch (e) {
-      resultValue.textContent = "Erro ao processar a imagem.";
-      resultValue.classList.add("empty");
+      clearResultDisplay("Erro ao processar a imagem.", true);
       setStatus(e.message || "Erro desconhecido.", "err");
     }
   };
   preview.onerror = function () {
+    clearResultDisplay("Não foi possível carregar a imagem.", true);
     setStatus("Não foi possível carregar a imagem.", "err");
   };
   preview.src = objectUrl;
@@ -231,8 +301,7 @@ function processFile(file) {
   }
   if (isPdfFile(file)) {
     processPdf(file).catch(function (e) {
-      resultValue.textContent = "Erro ao processar o PDF.";
-      resultValue.classList.add("empty");
+      clearResultDisplay("Erro ao processar o PDF.", true);
       setStatus(e.message || "Erro desconhecido.", "err");
     });
     return;
@@ -244,8 +313,133 @@ function processFile(file) {
   processImageFile(file);
 }
 
+function screenScanTick() {
+  if (!screenScanning || !screenStream) {
+    return;
+  }
+  const code = decodeQrFromCanvasSource(screenVideo);
+  if (code && code.data) {
+    const thumb = snapshotSourceToDataUrl(screenVideo);
+    stopScreenCapture();
+    if (thumb) {
+      preview.src = thumb;
+      preview.classList.remove("hidden");
+    }
+    previewPlaceholder.classList.add("hidden");
+    screenVideo.classList.add("hidden");
+    showResult(code.data);
+    setStatus("QR lido a partir do ecrã.", "ok");
+    return;
+  }
+  screenRafId = requestAnimationFrame(screenScanTick);
+}
+
+async function startScreenCapture() {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    setStatus("Captura de ecrã não disponível neste dispositivo.", "err");
+    return;
+  }
+  stopScreenCapture();
+  revokePreviewUrl();
+  preview.removeAttribute("src");
+  preview.classList.add("hidden");
+  clearResultDisplay("Nenhum resultado ainda.", true);
+  previewPlaceholder.textContent = "A analisar o ecrã partilhado…";
+  previewPlaceholder.classList.remove("hidden");
+
+  try {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: false,
+    });
+  } catch (e) {
+    previewPlaceholder.textContent = "Pré-visualização";
+    if (e.name === "NotAllowedError") {
+      setStatus("Partilha de ecrã cancelada.", "info");
+    } else {
+      setStatus(e.message || "Não foi possível capturar o ecrã.", "err");
+    }
+    return;
+  }
+
+  const track = screenStream.getVideoTracks()[0];
+  if (track) {
+    track.addEventListener("ended", function () {
+      if (!screenScanning) {
+        return;
+      }
+      stopScreenCapture();
+      previewPlaceholder.textContent = "Pré-visualização";
+      if (!preview.getAttribute("src")) {
+        previewPlaceholder.classList.remove("hidden");
+      }
+      setStatus("Partilha de ecrã terminada.", "info");
+    });
+  }
+
+  screenVideo.srcObject = screenStream;
+  try {
+    await screenVideo.play();
+  } catch {
+    stopScreenCapture();
+    previewPlaceholder.textContent = "Pré-visualização";
+    setStatus("Não foi possível reproduzir o vídeo do ecrã.", "err");
+    return;
+  }
+
+  screenVideo.classList.remove("hidden");
+  previewPlaceholder.classList.add("hidden");
+  screenScanning = true;
+  setScreenButtonLabel(true);
+  setStatus(
+    "Mostre o QR no ecrã partilhado. Pode parar com «Parar análise» ou «Limpar».",
+    "info"
+  );
+  screenRafId = requestAnimationFrame(screenScanTick);
+}
+
+async function copyDecodedText() {
+  if (!lastDecodedText) {
+    setStatus("Nada para copiar — leia um QR primeiro.", "info");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(lastDecodedText);
+    setStatus("Copiado para a área de transferência.", "ok");
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = lastDecodedText;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+      setStatus("Copiado.", "ok");
+    } catch {
+      setStatus("Não foi possível copiar (permissão ou browser).", "err");
+    }
+    document.body.removeChild(ta);
+  }
+}
+
 pickBtn.addEventListener("click", function () {
   fileInput.click();
+});
+
+screenBtn.addEventListener("click", function () {
+  if (screenScanning) {
+    stopScreenCapture();
+    screenVideo.classList.add("hidden");
+    previewPlaceholder.textContent = "Pré-visualização";
+    if (!preview.getAttribute("src")) {
+      previewPlaceholder.classList.remove("hidden");
+    }
+    setStatus("Análise do ecrã interrompida.", "info");
+    return;
+  }
+  startScreenCapture();
 });
 
 fileInput.addEventListener("change", function () {
@@ -256,6 +450,16 @@ fileInput.addEventListener("change", function () {
 });
 
 clearBtn.addEventListener("click", clearAll);
+
+copyBtn.addEventListener("click", function () {
+  copyDecodedText();
+});
+
+preview.addEventListener("click", function () {
+  if (!preview.classList.contains("hidden") && lastDecodedText) {
+    copyDecodedText();
+  }
+});
 
 window.addEventListener("beforeinstallprompt", function (e) {
   e.preventDefault();

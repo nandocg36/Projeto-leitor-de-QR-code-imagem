@@ -43,6 +43,9 @@
           <button type="button" class="btn" id="pick-btn">
             Escolher imagem ou PDF
           </button>
+          <button type="button" class="btn btn--secondary" id="screen-btn">
+            Capturar ecrã
+          </button>
           <button type="button" class="btn" id="clear-btn">Limpar</button>
           <input
             id="file-input"
@@ -55,12 +58,34 @@
           <span class="preview-placeholder" id="preview-placeholder"
             >Pré-visualização</span
           >
-          <img id="preview" class="hidden" alt="Pré-visualização" />
+          <video
+            id="screen-preview"
+            class="hidden"
+            playsinline
+            muted
+            aria-hidden="true"
+          ></video>
+          <img
+            id="preview"
+            class="hidden preview-tap-copy"
+            alt="Pré-visualização — toque para copiar o texto lido"
+            title="Toque para copiar o texto lido"
+          />
         </div>
         <p id="status" class="status" role="status" aria-live="polite"></p>
       </section>
 
       <section class="panel" aria-label="Resultado">
+        <div class="result-toolbar">
+          <button
+            type="button"
+            class="btn btn--secondary"
+            id="copy-btn"
+            disabled
+          >
+            Copiar texto
+          </button>
+        </div>
         <div class="result">
           <div class="result-label">Conteúdo</div>
           <div id="result-value" class="result-value empty">

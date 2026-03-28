@@ -1,4 +1,4 @@
-const CACHE = "qr-image-reader-v2";
+const CACHE = "qr-image-reader-v3";
 const ASSETS = [
   "./",
   "./index.html",
